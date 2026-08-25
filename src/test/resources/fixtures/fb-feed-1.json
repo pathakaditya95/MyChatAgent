@@ -1,0 +1,24 @@
+{
+  "field": "feed",
+  "value": {
+    "from": {
+      "id": "27741041858920618",
+      "name": "Swati Shri Pal Singh"
+    },
+    "item": "comment",
+    "post": {
+      "id": "824570447415713_122141626023153354",
+      "status_type": "added_photos",
+      "is_published": true,
+      "updated_time": "2026-08-15T12:18:06+0000",
+      "permalink_url": "https://www.facebook.com/122141632239153354/posts/pfbid031mijv1nTjKcgqHjVU1sbZa4b2LzzpLdWeTv2BXdnbX1WHZji5wZzcwowrBs41igrl",
+      "promotion_status": "inactive"
+    },
+    "verb": "add",
+    "message": "Grfg",
+    "post_id": "824570447415713_122141626023153354",
+    "parent_id": "824570447415713_122141626023153354",
+    "comment_id": "122141626023153354_1386416150303193",
+    "created_time": 1786796286
+  }
+}

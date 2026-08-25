@@ -1,0 +1,16 @@
+target/
+.env
+*.log
+.idea/
+captured/
+
+# Maven
+!.mvn/wrapper/maven-wrapper.properties
+release.properties
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+
+# OS / editor
+.DS_Store
+.vscode/
+*.iml
