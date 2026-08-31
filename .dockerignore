@@ -1,0 +1,12 @@
+# Keep the build context small and, more importantly, keep secrets out of it.
+.env
+target/
+captured/
+.git/
+.github/
+.idea/
+.vscode/
+*.log
+NOTES.md
+PLAN.md
+README.md

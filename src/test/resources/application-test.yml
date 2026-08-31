@@ -1,0 +1,30 @@
+# Test-only Meta credentials.
+#
+# application.yml declares these as ${META_APP_SECRET} and friends with no defaults, so
+# that a missing secret fails startup rather than silently signing with an empty key.
+# Tests override the resolved values outright, so the placeholders are never evaluated.
+#
+# Activate with @ActiveProfiles("test") on any test that refreshes the Spring context.
+meta:
+  app-secret: test_app_secret
+  verify-token: test_verify_token
+  access-token: test_access_token
+  page-id: "100000000000001"
+  ig-user-id: "200000000000002"
+  graph-version: v21.0
+  graph-base-url: https://graph.facebook.com
+  # Never send live traffic from a test.
+  dry-run: true
+
+# Second signing key. Real apps using Instagram API with Instagram Login have a
+# separate Instagram App Secret; tests cover the dual-secret path explicitly.
+  instagram-app-secret: test_instagram_app_secret
+
+autoreply:
+  # Timers off in tests: a scheduler firing mid-assertion is a nightmare to debug.
+  # Tests call processBatch()/dispatchBatch() directly instead.
+  scheduling-enabled: false
+
+admin:
+  user: test_admin
+  password: test_admin_password

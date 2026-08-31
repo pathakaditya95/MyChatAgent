@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>meta-autoreply — rules</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 2rem auto; max-width: 68rem;
+         padding: 0 1rem; line-height: 1.5; }
+  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  .hint { opacity: 0.7; font-size: 0.85rem; margin-top: 0; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+  th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #8884; vertical-align: top; }
+  th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.7; }
+  td.wrap { max-width: 18rem; word-break: break-word; }
+  form { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.6rem;
+         margin-top: 1.5rem; padding: 1rem; border: 1px solid #8884; border-radius: 8px; }
+  label { display: flex; flex-direction: column; font-size: 0.8rem; gap: 0.2rem; }
+  input, select, button { font: inherit; padding: 0.35rem 0.5rem; }
+  button { cursor: pointer; }
+  .actions { display: flex; gap: 0.4rem; }
+  .pill { padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem; border: 1px solid #8886; }
+  .on { background: #16a34a22; }
+  .off { opacity: 0.6; }
+  #error { color: #dc2626; white-space: pre-wrap; margin-top: 0.75rem; }
+</style>
+</head>
+<body>
+<h1>Keyword rules</h1>
+<p class="hint">
+  Served from the app itself and calls <code>/api/rules</code> with your Basic auth session.
+  Enabling a rule makes it live on the next scheduler tick — check <code>META_DRY_RUN</code>
+  before enabling anything you do not want actually sent.
+</p>
+
+<div id="error"></div>
+<table>
+  <thead>
+    <tr><th>#</th><th>Name</th><th>Platform</th><th>Trigger</th><th>Match</th><th>Keyword</th>
+        <th>Public reply</th><th>DM</th><th>Pri</th><th>State</th><th></th></tr>
+  </thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<form id="create">
+  <label>Name<input name="name" required></label>
+  <label>Platform<select name="platform"><option>IG</option><option>FB</option></select></label>
+  <label>Trigger<select name="triggerType"><option>COMMENT</option><option>MESSAGE</option></select></label>
+  <label>Match<select name="matchType"><option>CONTAINS</option><option>EXACT</option><option>REGEX</option></select></label>
+  <label>Keyword<input name="keyword" required></label>
+  <label>Public reply<input name="publicReply"></label>
+  <label>DM text<input name="dmText"></label>
+  <label>Priority<input name="priority" type="number" value="100"></label>
+  <label>&nbsp;<button type="submit">Create rule</button></label>
+</form>
+
+<script>
+const errorBox = document.getElementById('error');
+
+function showError(message) { errorBox.textContent = message || ''; }
+
+async function api(path, options) {
+  const response = await fetch(path, options);
+  if (response.status === 204) return null;
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : null;
+  if (!response.ok) {
+    // The API returns a ProblemDetail whose `detail` names the actual problem.
+    throw new Error(payload?.detail || `${response.status} ${response.statusText}`);
+  }
+  return payload;
+}
+
+function cell(value) {
+  const td = document.createElement('td');
+  td.className = 'wrap';
+  td.textContent = value ?? '—';
+  return td;
+}
+
+async function refresh() {
+  showError('');
+  try {
+    const rules = await api('/api/rules');
+    const tbody = document.getElementById('rows');
+    tbody.replaceChildren();
+    for (const rule of rules) {
+      const tr = document.createElement('tr');
+      [rule.id, rule.name, rule.platform, rule.triggerType, rule.matchType, rule.keyword,
+       rule.publicReply, rule.dmText, rule.priority].forEach(v => tr.appendChild(cell(v)));
+
+      const state = document.createElement('td');
+      const pill = document.createElement('span');
+      pill.className = 'pill ' + (rule.enabled ? 'on' : 'off');
+      pill.textContent = rule.enabled ? 'enabled' : 'disabled';
+      state.appendChild(pill);
+      tr.appendChild(state);
+
+      const actions = document.createElement('td');
+      actions.className = 'actions';
+      const toggle = document.createElement('button');
+      toggle.textContent = rule.enabled ? 'Disable' : 'Enable';
+      toggle.onclick = () => act(() => api(`/api/rules/${rule.id}/toggle`, {method: 'PATCH'}));
+      const remove = document.createElement('button');
+      remove.textContent = 'Delete';
+      remove.onclick = () => {
+        if (confirm(`Delete rule "${rule.name}"?`)) {
+          act(() => api(`/api/rules/${rule.id}`, {method: 'DELETE'}));
+        }
+      };
+      actions.append(toggle, remove);
+      tr.appendChild(actions);
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+async function act(fn) {
+  try { await fn(); await refresh(); } catch (e) { showError(e.message); }
+}
+
+document.getElementById('create').addEventListener('submit', event => {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const rule = Object.fromEntries(form.entries());
+  rule.priority = Number(rule.priority);
+  rule.enabled = false;               // new rules start disabled, on purpose
+  for (const key of ['publicReply', 'dmText']) {
+    if (!rule[key]) rule[key] = null;
+  }
+  act(async () => {
+    await api('/api/rules', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(rule)
+    });
+    event.target.reset();
+  });
+});
+
+refresh();
+</script>
+</body>
+</html>

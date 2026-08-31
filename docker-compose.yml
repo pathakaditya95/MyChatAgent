@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: metaautoreply-postgres
+    environment:
+      POSTGRES_DB: metaautoreply
+      POSTGRES_USER: meta
+      POSTGRES_PASSWORD: meta
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meta -d metaautoreply"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+    container_name: metaautoreply-app
+    # Reads the same .env you use for local runs. Copy .env.example first.
+    env_file:
+      - .env
+    environment:
+      # Overrides the .env value: inside the compose network the database is
+      # reachable as `postgres`, not localhost.
+      DB_URL: jdbc:postgresql://postgres:5432/metaautoreply
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    # Off by default so `docker compose up -d postgres` stays the local-development
+    # path, with the app running from VS Code and the debugger attached. Start it
+    # explicitly with: docker compose --profile app up -d --build
+    profiles: ["app"]
+
+  # Exposes the local webhook endpoint to Meta during Phase 5.
+  # Off by default: `docker compose --profile tunnel up -d cloudflared`.
+  #
+  # TODO(human): `network_mode: host` behaves differently on Docker Desktop for
+  # Mac than on Linux — the container does not share the host network stack, so
+  # the tunnel may not reach the app running on localhost:8080. If the tunnel
+  # cannot connect during Phase 5, either run `cloudflared` natively on the host
+  # (`brew install cloudflared && cloudflared tunnel run`) or drop network_mode
+  # and point the tunnel at `host.docker.internal:8080`.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: metaautoreply-cloudflared
+    command: tunnel --no-autoupdate run
+    environment:
+      # Empty default keeps `docker compose` from warning on every command while
+      # the tunnel profile is inactive. Set TUNNEL_TOKEN in .env before Phase 5.
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    network_mode: host
+    profiles: ["tunnel"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

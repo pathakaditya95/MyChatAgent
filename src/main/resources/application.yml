@@ -1,0 +1,71 @@
+spring:
+  application.name: meta-autoreply
+  threads.virtual.enabled: true
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/metaautoreply}
+    username: ${DB_USER:meta}
+    password: ${DB_PASSWORD:meta}
+  jpa:
+    hibernate.ddl-auto: validate
+    open-in-view: false
+    properties.hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+server.port: ${PORT:8080}
+management:
+  endpoints.web.exposure.include: health,info
+  endpoint.health:
+    # Exposes /actuator/health/readiness and /actuator/health/liveness. Readiness
+    # is what the container healthcheck and any load balancer should gate on: it
+    # only reports UP once the context has refreshed and the datasource responds.
+    probes.enabled: true
+    group.readiness.include: readinessState,db
+meta:
+  app-secret: ${META_APP_SECRET}
+  instagram-app-secret: ${META_INSTAGRAM_APP_SECRET:}
+  verify-token: ${META_VERIFY_TOKEN}
+  access-token: ${META_ACCESS_TOKEN}
+  page-id: ${META_PAGE_ID}
+  ig-user-id: ${META_IG_USER_ID}
+  graph-version: ${META_GRAPH_VERSION:v21.0}
+  graph-base-url: https://graph.facebook.com
+  dry-run: ${META_DRY_RUN:true}
+admin:
+  user: ${ADMIN_USER:admin}
+  # No default: an unset password must fail startup, not silently protect the rule API
+  # with something guessable.
+  password: ${ADMIN_PASSWORD}
+
+resilience4j:
+  retry:
+    instances:
+      graphApi:
+        max-attempts: 3
+        wait-duration: 1s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        # Only transient failures are retried. A fatal rejection or a dead token fails
+        # identically every time, so retrying it only burns rate limit and risks tripping
+        # Meta's anti-spam heuristics.
+        retry-exceptions:
+          - com.example.metaautoreply.delivery.exceptions.RetryableMetaException
+  circuitbreaker:
+    instances:
+      graphApi:
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        # A fatal rejection is a fact about one message, not about Graph API health, so it
+        # must not push the breaker open and stall every other send.
+        record-exceptions:
+          - com.example.metaautoreply.delivery.exceptions.RetryableMetaException
+
+autoreply:
+  process-interval-ms: 2000
+  dispatch-interval-ms: 1000
+  max-send-attempts: 5
+  sends-per-hour: 200
+  jitter-ms: 1500
