@@ -30,8 +30,18 @@ public class MetaErrorClassifier {
 	/** Token expired, revoked, or otherwise invalid. Needs a human. */
 	private static final Set<Integer> REAUTH = Set.of(102, 190);
 
-	/** Permanent rejections: bad parameter, permission, unavailable user. */
-	private static final Set<Integer> FATAL = Set.of(10, 100, 200, 551);
+	/**
+	 * Permanent rejections: bad parameter, permission, unavailable user.
+	 *
+	 * <p>10900 — "Activity already replied to" — is Meta enforcing one private reply per
+	 * comment on its own side. Not an error we can fix by retrying, and not really a failure
+	 * either: the reply exists. Observed when a row was requeued by hand after its first
+	 * attempt had already succeeded.
+	 */
+	private static final Set<Integer> FATAL = Set.of(10, 100, 200, 551, 10900);
+
+	/** Codes worth a gentler log line than the rest of FATAL. */
+	private static final Set<Integer> ALREADY_DONE = Set.of(10900);
 
 	private final ObjectMapper mapper;
 
@@ -72,6 +82,12 @@ public class MetaErrorClassifier {
 		}
 		if (RETRYABLE.contains(code)) {
 			return new RetryableMetaException(detail, httpStatus, code, subcode, body);
+		}
+		if (ALREADY_DONE.contains(code)) {
+			// Meta has already done what we asked. Nothing is broken, so this does not deserve
+			// ERROR — but it must not be retried either.
+			log.info("Graph API reports the work was already done ({}). Not retrying.", detail);
+			return new FatalMetaException(detail, httpStatus, code, subcode, body);
 		}
 		if (FATAL.contains(code)) {
 			// Full body on FATAL: these are the ones that need a human to read them.

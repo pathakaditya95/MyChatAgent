@@ -52,21 +52,21 @@ if token_type == "PAGE":
     print("Already a Page token — nothing to do.")
     raise SystemExit(0)
 
-# A System User with no Page assigned reports every granular scope with no targets.
-targets = [g for g in data.get("granular_scopes", []) if g.get("target_ids")]
-if not targets:
-    print()
-    print("This System User has no Page assigned to it, so there is no Page token to derive.")
-    print("Fix it in Business Settings -> Users -> System Users -> (your user):")
-    print("  1. Add Assets -> Pages -> select your Page -> enable full control")
-    print("  2. Add Assets -> Instagram accounts -> select your account")
-    print("  3. Generate New Token, keeping the same permissions")
-    print("  4. Put the new token in .env and re-run this script")
-    raise SystemExit(1)
-
+# Just attempt the exchange. An earlier version of this script pre-checked
+# `granular_scopes` for assigned targets and refused when they were all null —
+# that was a false negative: the exchange succeeds regardless, and the check sent
+# a real debugging session off chasing asset assignment that was already fine.
+# Let Meta be the authority on whether this works.
 result = graph(page, fields="name,access_token")
 if "error" in result or "access_token" not in result:
-    print("Could not derive a Page token:", result.get("error", {}).get("message", result))
+    err = result.get("error", {})
+    print()
+    print(f"Could not derive a Page token: (#{err.get('code')}) {err.get('message')}")
+    if err.get("code") in (10, 200, 190):
+        print()
+        print("If this is a permissions or access error, check in Business Settings:")
+        print("  Users -> System Users -> (your user) -> Add Assets -> Pages")
+        print("  -> select your Page -> enable full control, then regenerate the token.")
     raise SystemExit(1)
 
 page_token = result["access_token"]

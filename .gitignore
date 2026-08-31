@@ -3,6 +3,8 @@ target/
 *.log
 .idea/
 captured/
+.run/
+.env.bak
 
 # Maven
 !.mvn/wrapper/maven-wrapper.properties

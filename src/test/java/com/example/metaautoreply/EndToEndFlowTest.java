@@ -34,6 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
@@ -153,6 +154,21 @@ class EndToEndFlowTest {
 		}
 	}
 
+	/**
+	 * Rewrites {@code value.created_time} to now.
+	 *
+	 * <p>The Facebook fixture is a real comment carrying its real capture timestamp, and
+	 * compliance invariant #2 refuses a private reply to anything older than seven days. A test
+	 * asserting that the private reply happens is therefore true when written and false a week
+	 * later — which is exactly how it failed, with the product behaving correctly throughout.
+	 * Tests that care about the reply path refresh the timestamp; the one that cares about the
+	 * window deliberately does not.
+	 */
+	private static String withCurrentTimestamp(String fixtureJson) {
+		return fixtureJson.replaceAll("\"created_time\"\\s*:\\s*\\d+",
+				"\"created_time\": " + Instant.now().getEpochSecond());
+	}
+
 	/** Wraps a captured sub-payload back into the delivery envelope Meta actually posts. */
 	private static String envelope(String object, String changesOrMessaging, String subPayload) {
 		return """
@@ -197,7 +213,7 @@ class EndToEndFlowTest {
 				.withRequestBody(equalToJson("{\"message\":\"Thanks for commenting!\"}")));
 
 		// The private reply is addressed by comment id and goes to OUR Instagram inbox.
-		wireMock.verify(WireMock.postRequestedFor(WireMock.urlEqualTo("/v21.0/" + IG_USER_ID + "/messages"))
+		wireMock.verify(WireMock.postRequestedFor(WireMock.urlEqualTo("/v21.0/" + PAGE_ID + "/messages"))
 				.withRequestBody(equalToJson("""
 						{"recipient":{"comment_id":"%s"},"message":{"text":"Here are the details."}}"""
 						.formatted(commentId))));
@@ -215,7 +231,7 @@ class EndToEndFlowTest {
 		rules.save(new KeywordRule("e2e fb", Platform.FB, TriggerType.COMMENT, MatchType.CONTAINS,
 				"grfg", "Thanks!", "Details.", true, 1));
 
-		deliver(envelope("page", "changes", fixture("fb-feed-1.json")));
+		deliver(envelope("page", "changes", withCurrentTimestamp(fixture("fb-feed-1.json"))));
 		runBothSchedulers();
 
 		String commentId = "122141626023153354_1386416150303193";
@@ -235,7 +251,7 @@ class EndToEndFlowTest {
 		deliver(envelope("instagram", "messaging", fixture("ig-message-3.json")));
 		runBothSchedulers();
 
-		wireMock.verify(WireMock.postRequestedFor(WireMock.urlEqualTo("/v21.0/" + IG_USER_ID + "/messages"))
+		wireMock.verify(WireMock.postRequestedFor(WireMock.urlEqualTo("/v21.0/" + PAGE_ID + "/messages"))
 				.withRequestBody(equalToJson("""
 						{"recipient":{"id":"694336747088628"},"message":{"text":"Hello back!"}}""")));
 
@@ -259,6 +275,33 @@ class EndToEndFlowTest {
 
 		assertThat(outbound.findAll()).isEmpty();
 		assertThat(wireMock.findAll(WireMock.postRequestedFor(WireMock.urlMatching(".*")))).isEmpty();
+	}
+
+	/**
+	 * Compliance invariant #2, end to end.
+	 *
+	 * <p>Uses the captured fixture with its original timestamp, unrefreshed. That comment was
+	 * real and is now permanently more than seven days old, so it can never receive a private
+	 * reply again — which makes this assertion stable rather than time-dependent. The public
+	 * reply carries no such restriction and must still go out.
+	 */
+	@Test
+	void aCommentOlderThanSevenDaysGetsAPublicReplyButNoPrivateReply() throws Exception {
+		stubEverythingOk();
+		rules.save(new KeywordRule("e2e window", Platform.FB, TriggerType.COMMENT,
+				MatchType.CONTAINS, "grfg", "Thanks!", "Details.", true, 1));
+
+		deliver(envelope("page", "changes", fixture("fb-feed-1.json")));
+		runBothSchedulers();
+
+		String commentId = "122141626023153354_1386416150303193";
+		wireMock.verify(WireMock.postRequestedFor(WireMock.urlEqualTo("/v21.0/" + commentId + "/comments")));
+		wireMock.verify(0, WireMock.postRequestedFor(
+				WireMock.urlEqualTo("/v21.0/" + PAGE_ID + "/messages")));
+
+		assertThat(outbound.findAll())
+				.singleElement()
+				.satisfies(m -> assertThat(m.getKind()).isEqualTo(OutboundKind.PUBLIC_REPLY));
 	}
 
 	/** A delivery Meta did not sign must never reach the pipeline at all. */

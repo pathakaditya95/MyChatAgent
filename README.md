@@ -9,18 +9,27 @@ sends automated DMs, driven by keyword rules stored in Postgres.
 
 ## Status
 
-Phase 8 complete — the pipeline runs end to end. Signed webhook intake lands in
+**Live on both platforms.** Phases 1–11 complete. Signed webhook intake lands in
 `inbound_event`; a scheduled processor normalises events, matches keyword rules
 and queues outbound messages; a paced dispatcher drains the queue through a typed
-Graph API client with retry, circuit breaking and error classification.
+Graph API client with retry, circuit breaking and error classification. A rule
+admin API sits behind HTTP Basic. 146 tests, one shared Postgres container,
+coverage gated on `engine` and `delivery`.
 
-Phase 9 adds a rule admin API behind HTTP Basic; Phase 10 hardens the test suite
-(145 tests, one shared Postgres container, coverage gated on `engine` and
-`delivery`).
+All four delivery paths are confirmed against real accounts:
 
-**Nothing is sent for real yet.** `META_DRY_RUN` defaults to `true`, which logs
-each request and returns a synthetic id. Phase 11 is the deliberate switch to
-live traffic.
+| Platform | Public reply | Private reply |
+|---|---|---|
+| Facebook | sent | sent |
+| Instagram | sent | sent |
+
+`META_DRY_RUN=false` means this now sends real messages. Set it back to `true`
+for any experimentation — dry-run logs the exact request and returns a synthetic
+id instead.
+
+Phase 12 (App Review for Advanced Access) is human-only and remains open; it is
+needed only to serve people who hold no role on the Meta app.
+
 
 ## Managing rules
 
@@ -132,6 +141,47 @@ curl -s localhost:8080/actuator/health/readiness
 `/actuator/health/liveness` stays UP while the database is unreachable —
 deliberately, so an orchestrator stops sending traffic without restarting a
 process that is merely waiting.
+
+## Running in IntelliJ IDEA
+
+Run configurations live in `.run/` and appear in the run dropdown once the project
+is imported:
+
+| Configuration | What it does |
+|---|---|
+| **app** | Normal run on port 8080 |
+| **app (debug capture)** | Adds the `debug` profile — enables `/debug/events` for Phase 5 capture |
+| **app (port 8081)** | Same as `app` but on 8081, for running alongside another instance |
+| **verify (all tests)** | `mvn verify` — the full suite plus the coverage gate |
+| **EndToEndFlowTest** | Just the end-to-end test, the quickest full-pipeline check |
+
+### One-time setup: the .env plugin
+
+The three `app` configurations load `.env` through the free
+[EnvFile](https://plugins.jetbrains.com/plugin/7861-envfile) plugin, because
+IntelliJ has no built-in way to read one and the app refuses to start with
+unresolved `${META_...}` placeholders.
+
+Install it via **Settings → Plugins → Marketplace → "EnvFile"**, then restart. The
+configurations are already wired to `$PROJECT_DIR$/.env`; nothing else to
+configure.
+
+Without the plugin the app configs will fail at startup with a message naming the
+missing variable. Either install it, or paste the values into the configuration's
+**Environment variables** field by hand.
+
+**Secrets are not stored in `.run/`** — the XML references `.env` by path only, so
+these files are safe to commit even though `.env` is not.
+
+### Notes
+
+- Start Postgres first: `docker compose up -d postgres`.
+- The test configurations need **no** environment setup. The suite pins every
+  `meta.*` value, including `dry-run=true`, so tests cannot send live traffic
+  regardless of what is in your `.env`.
+- Set the project SDK to **Java 21** (File → Project Structure → Project). The
+  Homebrew `mvn` on this machine resolves JDK 26; IntelliJ should use 21 to match
+  `./mvnw`.
 
 ## Configuration
 

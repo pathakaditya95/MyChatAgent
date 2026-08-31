@@ -73,7 +73,7 @@ public class GraphApiClient {
 		Map<String, Object> body = Map.of(
 				"recipient", Map.of("comment_id", commentId),
 				"message", Map.of("text", text));
-		return post(path(accountId(platform), "messages"), body, "message_id",
+		return post(path(messagingAccountId(), "messages"), body, "message_id",
 				platform + " private reply to comment " + commentId);
 	}
 
@@ -84,7 +84,7 @@ public class GraphApiClient {
 		Map<String, Object> body = Map.of(
 				"recipient", Map.of("id", recipientId),
 				"message", Map.of("text", text));
-		return post(path(accountId(platform), "messages"), body, "message_id",
+		return post(path(messagingAccountId(), "messages"), body, "message_id",
 				platform + " DM to " + recipientId);
 	}
 
@@ -135,9 +135,25 @@ public class GraphApiClient {
 		return id;
 	}
 
-	/** Both messaging calls go to our own account's inbox, which differs per platform. */
-	private String accountId(Platform platform) {
-		return platform == Platform.IG ? props.igUserId() : props.pageId();
+	/**
+	 * Both messaging calls go through the Facebook Page — including Instagram ones.
+	 *
+	 * <p>Instagram messaging via the Messenger Platform is addressed to the ID of the Page
+	 * linked to the Instagram professional account, not to the Instagram user id:
+	 * "send a POST request to the /&lt;PAGE_ID&gt;/messages endpoint". Sending to
+	 * {@code /{ig-user-id}/messages} with a Page token fails with
+	 * {@code (#3) Application does not have the capability to make this API call}, which reads
+	 * like a permissions problem and is actually a wrong-endpoint problem.
+	 *
+	 * <p>{@code PLAN.md} Phase 7 specifies "{igUserId or pageId}", which is correct for the
+	 * other Instagram flow — Instagram API with Instagram Login, using an IG user token. This
+	 * service authenticates with a Page token, so the Page id applies to both platforms.
+	 *
+	 * <p>{@code META_IG_USER_ID} is still required: the normalizer compares it against event
+	 * senders to recognise our own Instagram activity (compliance invariant #4).
+	 */
+	private String messagingAccountId() {
+		return props.pageId();
 	}
 
 	private String path(String id, String edge) {

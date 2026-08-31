@@ -112,8 +112,8 @@ class GraphApiClientTest {
 	}
 
 	@Test
-	void privateReplyAddressesTheCommentAndGoesToTheIgInbox() {
-		String url = "/" + VERSION + "/" + IG_USER_ID + "/messages";
+	void privateReplyAddressesTheCommentAndGoesToThePageInbox() {
+		String url = "/" + VERSION + "/" + PAGE_ID + "/messages";
 		stubOk(url, "{\"recipient_id\":\"u1\",\"message_id\":\"mid_1\"}");
 
 		assertThat(client.privateReply(Platform.IG, "comment_3", "details")).isEqualTo("mid_1");
@@ -136,7 +136,7 @@ class GraphApiClientTest {
 
 	@Test
 	void sendDmAddressesTheRecipientById() {
-		String url = "/" + VERSION + "/" + IG_USER_ID + "/messages";
+		String url = "/" + VERSION + "/" + PAGE_ID + "/messages";
 		stubOk(url, "{\"message_id\":\"mid_3\"}");
 
 		assertThat(client.sendDm(Platform.IG, "user_9", "hi")).isEqualTo("mid_3");

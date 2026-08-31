@@ -829,6 +829,116 @@ Instagram account, and generate a token". It does not mention that the resulting
 System User token is the wrong *type* for comment publishing, nor that a Page
 token must be derived from it.
 
+### FINDING: a fixture with a real timestamp is a time bomb
+
+`EndToEndFlowTest.aRealFacebookCommentIsRoutedToTheFacebookEdgeAndPageInbox`
+passed for a week and then began failing:
+
+```
+expected: POST /v21.0/824570447415713/messages
+but was:  POST /v21.0/122141626023153354_1386416150303193/comments
+```
+
+The public reply happened; the private reply did not. **The product was correct
+throughout.** `fb-feed-1.json` is a real captured comment carrying its real
+`created_time` (2026-08-15). Once that passed seven days, compliance invariant #2
+correctly refused the private reply — but the test asserted one would be sent.
+
+This is worth remembering as a general hazard: capturing real payloads is the
+right thing to do (plan rule 2), and any *time-sensitive* field inside one will
+silently invert an assertion later. The failure surfaces days or weeks after the
+change that caused it, with a message that points at routing rather than at time.
+
+**Fix, two halves:**
+
+- `withCurrentTimestamp(...)` rewrites `value.created_time` to now for tests that
+  exercise the private-reply path.
+- A new test, `aCommentOlderThanSevenDaysGetsAPublicReplyButNoPrivateReply`, uses
+  the fixture *unrefreshed*. That comment only gets older, so the assertion is
+  permanently stable — the time bomb becomes an explicit end-to-end proof of the
+  seven-day window.
+
+Instagram is unaffected: IG comment payloads carry no timestamp at all, so the
+normalizer falls back to `inbound_event.received_at`, which is always fresh.
+
+### FINDING: Instagram DMs go to the PAGE id, not the IG user id
+
+Live Instagram private reply failed with:
+
+```
+(#3) Application does not have the capability to make this API call.
+```
+
+That reads like a missing permission or an App Review problem. It is neither — it
+is the wrong endpoint. Meta's Messenger Platform documentation for Instagram
+private replies is explicit:
+
+> send a `POST` request to the `/<PAGE_ID>/messages` endpoint where the
+> `recipient` parameter contains the comment ID
+
+`PAGE_ID` being "the ID for the Facebook Page linked to your Instagram
+professional account". Instagram messaging is routed through the linked Page, so
+both platforms use the same id.
+
+`PLAN.md` Phase 7 specifies `POST /{version}/{igUserId or pageId}/messages`. That
+is correct for the *other* Instagram flow — Instagram API with Instagram Login,
+authenticated with an IG user token. This service authenticates with a Page
+token, so the Page id applies to both.
+
+`GraphApiClient.messagingAccountId()` now returns the Page id unconditionally.
+**`META_IG_USER_ID` is still required** — the normalizer compares it against event
+senders to recognise our own Instagram activity (compliance invariant #4).
+
+Note this failure mode: a wrong endpoint that reports itself as a capability
+problem. Two prior errors in this project (`(#10) requires pages_read_engagement`
+when the asset was unassigned, and this one) both named permissions while the
+real cause was elsewhere. Treat Meta's permission errors as a starting point, not
+a diagnosis.
+
+### Graph API error code 10900 — "Activity already replied to"
+
+Seen on Facebook private replies after rows were requeued by hand: Meta enforces
+one private reply per comment on its own side, independently of our
+`unique (kind, target_id)` constraint.
+
+Classified as FATAL — retrying cannot help — but logged at INFO rather than ERROR
+via a small `ALREADY_DONE` set, because nothing is actually broken: the reply
+exists. Worth knowing that requeuing a private reply that already succeeded will
+always land here.
+
+### 2026-08-25 — Phase 11: live on both platforms
+
+All four delivery paths confirmed against real accounts, each with a genuine
+provider message id (not a `dry-run-` placeholder):
+
+| Platform | Public reply | Private reply |
+|---|---|---|
+| Facebook | **SENT** (`122141626023153354…`) | **SENT** (`m_-68zjxlyBGgOdbOQ…`) |
+| Instagram | **SENT** (`18092724425650484…`) | **SENT** (`aWdfZAG1faXRlbToxO…`) |
+
+Phase 11's primary Acceptance check — "one real end-to-end auto-reply and auto-DM
+confirmed on both platforms" — is met.
+
+Getting here took four separate fixes, none of which the error messages pointed
+at directly:
+
+1. Missing `pages_read_user_content`, then `pages_manage_engagement` (the
+   permission checklist does not carry over between token generations).
+2. Wrong token type — comment publishing needs `PAGE`, not `SYSTEM_USER`.
+3. A false-negative guard in `derive-page-token.sh` that blamed asset assignment.
+4. Instagram DMs addressed to the IG user id instead of the linked Page id.
+
+**Still outstanding:** the second Acceptance check, "restarting the app mid-flight
+loses nothing (rows resume from PENDING)". This is structurally guaranteed —
+`lockBatch` claims rows inside the dispatcher's transaction, so a process death
+rolls the claim back and the rows stay `PENDING` — and the transaction boundary is
+covered by `concurrentDispatchersNeverClaimTheSameRow`. It has not been observed
+on a live restart, which is worth doing during the 24-hour watch.
+
+**Residual FAILED rows:** 4 Facebook and 1 Instagram private reply, all code 10900
+("Activity already replied to") from rows requeued by hand after they had already
+succeeded. Not real failures. Requeuing them again reproduces the same result.
+
 ## Real Meta payload observations
 
 **STATUS: COMPLETE 2026-08-15.** Both platforms captured, comments and messages.
